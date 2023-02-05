@@ -29,25 +29,35 @@ initial_state(Nick, GUIAtom, ServerAtom) ->
 % Join channel
 handle(St, {join, Channel}) ->
     % TODO: Implement this function
-    % {reply, ok, St} ;
-    {reply, {error, not_implemented, "join not implemented"}, St} ;
+    % TODO: Update state
+    io:format("[Debug/Client]: Join requested (~p)~n", [Channel]),
+
+    % Inform server of channel creation / joining
+    Pid = St#client_st.server,
+    genserver:request(Pid, {join, Channel, St#client_st.nick}),
+
+    % Send reply back to GUI
+    {reply, ok, St};
 
 % Leave channel
+% TODO: Leaving a non-existing channel crashes
 handle(St, {leave, Channel}) ->
     % TODO: Implement this function
-    % {reply, ok, St} ;
-    {reply, {error, not_implemented, "leave not implemented"}, St} ;
+    % TODO: Update state
+    io:format("[Debug/Client]: Leave requested (~p)~n", [Channel]),
+    {reply, ok, St};
 
 % Sending message (from GUI, to channel)
 handle(St, {message_send, Channel, Msg}) ->
     % TODO: Implement this function
-    % {reply, ok, St} ;
-    {reply, {error, not_implemented, "message sending not implemented"}, St} ;
+    io:format("[Debug/Client]: Message send requested (~p), to channel: ~p~n", [Msg, Channel]),
+    {reply, ok, St};
+    %{reply, {error, not_implemented, "message sending not implemented"}, St};
 
 % This case is only relevant for the distinction assignment!
 % Change nick (no check, local only)
 handle(St, {nick, NewNick}) ->
-    {reply, ok, St#client_st{nick = NewNick}} ;
+    {reply, ok, St#client_st{nick = NewNick}};
 
 % ---------------------------------------------------------------------------
 % The cases below do not need to be changed...
@@ -55,18 +65,19 @@ handle(St, {nick, NewNick}) ->
 
 % Get current nick
 handle(St, whoami) ->
-    {reply, St#client_st.nick, St} ;
+    {reply, St#client_st.nick, St};
 
 % Incoming message (from channel, to GUI)
 handle(St = #client_st{gui = GUI}, {message_receive, Channel, Nick, Msg}) ->
     gen_server:call(GUI, {message_receive, Channel, Nick++"> "++Msg}),
-    {reply, ok, St} ;
+    {reply, ok, St};
 
 % Quit client via GUI
 handle(St, quit) ->
     % Any cleanup should happen here, but this is optional
-    {reply, ok, St} ;
+    {reply, ok, St};
 
 % Catch-all for any unhandled requests
 handle(St, Data) ->
-    {reply, {error, not_implemented, "Client does not handle this command"}, St} .
+    io:format("[Debug]: Unhandled request (~p)~n", [Data]),
+    {reply, {error, not_implemented, "Client does not handle this command"}, St}.
