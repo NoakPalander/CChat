@@ -4,3 +4,4 @@
 tmp/
 *.beam
 lib/*.beam
+build/

@@ -33,8 +33,7 @@ handle(St, {join, Channel}) ->
     io:format("[Debug/Client]: Join requested (~p)~n", [Channel]),
 
     % Inform server of channel creation / joining
-    Pid = St#client_st.server,
-    genserver:request(Pid, {join, Channel, St#client_st.nick}),
+    genserver:request(St#client_st.server, {join, Channel, St#client_st.nick, self()}),
 
     % Send reply back to GUI
     {reply, ok, St};
