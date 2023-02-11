@@ -6,23 +6,36 @@
 -record(server_state, {channels = []}).
 
 add_channel(#server_state{channels = Channels}, Channel) ->
-    #server_state{channels = [Channel | Channels]}.
+    State = #server_state{channels = [Channel | Channels]},
+    io:format("[Debug/Server]: Adding channel, new state ~p~n", [State]),
+    State.
 
 % Handles a client's request to join a channel
-% TODO: Only create a channel if it doesnt exist, otherwise join it.
 handle(State, {join, ChannelName, Name, From}) ->
-    io:format("[Debug/Server]: Join channel requested.~n"),
+    io:format("[Debug/Server]: Join channel requested~n"),
 
-    % Creating a new channel
-    Channel = channel:create(ChannelName, {Name, From}),
+    % Looks for a channel in our state, matching the join-commands name
+    NewState = case lists:keyfind(ChannelName, 1, State#server_state.channels) of
+        % Wasn't found
+        false ->
+            % Create a new channel and join it
+            Channel = channel:create(ChannelName, {From, Name}),
 
-    % Updates the state
-    NewState = add_channel(State, Channel),
+            % Add the channel to our state
+            add_channel(State, {ChannelName, Channel});
 
-    %NewState = #server_state{channels = Channels},
+        % Channel was found
+        {_, Channel} ->
+            % Join it, if we're already joined this is effectively a no-op
+            % The server state isn't altered
+            genserver:request(Channel, {join, From, Name}),
+            State
+    end,
+
     io:format("[Debug/Server]: New state: ~p~n", [NewState]),
 
     % Return a reply with the updated state
+    % TODO: This "some reply" is kinda weird, idk what to return
     {reply, "some reply", NewState};
 
 handle(_, _) ->
