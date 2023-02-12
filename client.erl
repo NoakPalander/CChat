@@ -55,8 +55,16 @@ handle(St, {leave, Channel}) ->
 % Sending message (from GUI, to channel)
 handle(St, {message_send, Channel, Msg}) ->
     io:format("[Debug/Client]: Message send requested (~p), to channel: ~p~n", [Msg, Channel]),
+
+    R = genserver:request(St#client_st.server, {message_send, Channel, Msg, St#client_st.nick, self()}),
+
+    io:format("[Debug/Client]: R = ~p~n", [R]),
     {reply, ok, St};
     %{reply, {error, not_implemented, "message sending not implemented"}, St};
+
+handle(St, {message_receive, Channel, Msg}) ->
+    % TODO: send this to the GUI
+    io:format("Received ~p in ~p~n", [Msg, Channel]);
 
 % This case is only relevant for the distinction assignment!
 % Change nick (no check, local only)

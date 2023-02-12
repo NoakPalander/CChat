@@ -59,9 +59,20 @@ handle(State, {leave, ChannelName, Name, From}) ->
             end
     end;
 
-handle(State, {message_send, Channel, Msg}) ->
-    io:format("Channel: ~p, Msg: ~p~n", [Channel, Msg]),
-    {reply, ok, State};
+handle(State, {message_send, ChannelName, Msg, Name, From}) ->
+    io:format("[Debug/Server]: Message send requested~n"),
+
+    % Looks for a channel in our state
+    case lists:keyfind(ChannelName, 1, State#server_state.channels) of
+        % Couldn't find the channel
+        false ->
+            {reply, {error, user_not_joined, "Channel not found"}, State};
+
+        {_, Channel} ->
+            % Forward the message to the channel
+            genserver:request(Channel, {send, Msg, Name, From}),
+            {reply, ok, State}
+    end;
 
 handle(_, _) ->
     {'EXIT', "Fatal error: unknown command"}.

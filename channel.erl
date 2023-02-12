@@ -1,14 +1,54 @@
 -module(channel).
 -export([create/2, delete/1]).
 
-% Contains a list of members, members are identified as a tuple {Pid, Name}
--record(channel_state, {members = []}).
+% Type declaration for members
+-type member() :: {pid(), string()}.
+
+% Holds our channel's state
+-record(channel_state, {
+    name :: string(),
+    members :: list(member())
+}).
+
+% Type declaration for the state record, just syntax sugar
+-type state() :: #channel_state{}.
+
 
 % Returns an initial state, containing one member
-init_state(User) ->
-    State = #channel_state{members = [User]},
+-spec init_state(string(), member()) -> state().
+init_state(ChannelName, User) ->
+    State = #channel_state{name = ChannelName, members = [User]},
     io:format("[Debug/Channel]: Initial state ~p~n", [State]),
     State.
+
+
+% Creates a channel process and adds the callee to the members list
+% Returns the Pid of the channel
+-spec create(string(), member()) -> pid().
+create(ChannelName, User) ->
+    io:format("[Debug/Channel]: Creating a channel '~p'~n", [ChannelName]),
+
+    % Registers the channel name as a process and runs the loop
+    genserver:start(list_to_atom(ChannelName), init_state(ChannelName, User), fun handle/2).
+
+
+% Deletes the channel
+-spec delete(pid() | atom()) -> atom().
+delete(Channel) ->
+    genserver:stop(Channel).
+
+
+% Adds a member and returns a new state
+-spec add_member(state(), member()) -> state().
+add_member(#channel_state{name = Name, members = Members}, Member) ->
+    #channel_state{name = Name, members = [Member | Members]}.
+
+
+% Drops a member and returns a new state
+-spec drop_member(state(), member()) -> state().
+drop_member(#channel_state{name = Name, members = Members}, Member) ->
+     #channel_state{name = Name, members = lists:delete(Member, Members)}.
+
 
 % Handles user joining
 handle(State, {join, From, Name}) ->
@@ -20,7 +60,7 @@ handle(State, {join, From, Name}) ->
         {From, Name} -> {reply, user_already_joined, State};
 
         % Add user to the members list
-        false -> {reply, ok, #channel_state{members = [{From, Name} | Members]}}
+        false -> {reply, ok, add_member(State, {From, Name})}
     end,
 
     %io:format("[Debug/Channel]: New state ~p~n", [NewState]),
@@ -36,21 +76,31 @@ handle(State, {leave, From, Name}) ->
         false -> {reply, user_not_joined, State};
 
         % Member found, we can now drop it from the members list
-        Member -> {reply, ok, #channel_state{members = lists:delete(Member, Members)}}
+        Member -> {reply, ok, drop_member(State, Member)}
     end;
+
+handle(State, {send, Msg, Name, From}) ->
+    Members = State#channel_state.members,
+
+    % Verifies so the user is a member of the channel
+    case lists:keyfind(From, 1, Members) of
+        % Member not found
+        false ->
+            {reply, {error, user_not_joined, "User isn't in the channel"}, State};
+
+        Author ->
+            Recipients = lists:delete(Author, Members),
+
+            % TODO: Could make this asynchronous
+            lists:foreach(fun ({Member, _}) ->
+                io:format("Member: ~p~n", [Member]),
+                % Send message to each recipient (client)
+
+                genserver:request(Member, {message_receive, State#channel_state.name, Msg})
+            end, Recipients)
+    end,
+
+    0;
 
 handle(_State, _) ->
     undefined.
-
-% Creates a channel process and adds the callee to the members list
-% Returns the Pid of the channel
--spec create(string(), pid()) -> pid().
-create(ChannelName, User) ->
-    io:format("[Debug/Channel]: Creating a channel '~p'~n", [ChannelName]),
-
-    % Registers the channel name as a process and runs the loop
-    % register(list_to_atom(Name), spawn(fun () -> loop(InitState) end)).
-    genserver:start(list_to_atom(ChannelName), init_state(User), fun handle/2).
-
-delete(Channel) ->
-    genserver:stop(Channel).
