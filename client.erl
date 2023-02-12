@@ -28,27 +28,32 @@ initial_state(Nick, GUIAtom, ServerAtom) ->
 
 % Join channel
 handle(St, {join, Channel}) ->
-    % TODO: Implement this function
-    % TODO: Update state
     io:format("[Debug/Client]: Join requested (~p)~n", [Channel]),
 
     % Inform server of channel creation / joining
-    genserver:request(St#client_st.server, {join, Channel, St#client_st.nick, self()}),
+    case genserver:request(St#client_st.server, {join, Channel, St#client_st.nick, self()}) of
+        % Everything went ok
+        ok -> {reply, ok, St};
 
-    % Send reply back to GUI
-    {reply, ok, St};
+        % User was already joined
+        Reply -> {reply, Reply, St}
+    end;
 
 % Leave channel
-% TODO: Leaving a non-existing channel crashes
 handle(St, {leave, Channel}) ->
-    % TODO: Implement this function
-    % TODO: Update state
     io:format("[Debug/Client]: Leave requested (~p)~n", [Channel]),
-    {reply, ok, St};
+
+    % Inform server of leaving
+    case genserver:request(St#client_st.server, {leave, Channel, St#client_st.nick, self()}) of
+        % Everything went ok
+        ok -> {reply, ok, St};
+
+        % User wasn't joined
+        Reply -> {reply, Reply, St}
+    end;
 
 % Sending message (from GUI, to channel)
 handle(St, {message_send, Channel, Msg}) ->
-    % TODO: Implement this function
     io:format("[Debug/Client]: Message send requested (~p), to channel: ~p~n", [Msg, Channel]),
     {reply, ok, St};
     %{reply, {error, not_implemented, "message sending not implemented"}, St};

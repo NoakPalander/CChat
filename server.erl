@@ -15,28 +15,53 @@ handle(State, {join, ChannelName, Name, From}) ->
     io:format("[Debug/Server]: Join channel requested~n"),
 
     % Looks for a channel in our state, matching the join-commands name
-    NewState = case lists:keyfind(ChannelName, 1, State#server_state.channels) of
+    case lists:keyfind(ChannelName, 1, State#server_state.channels) of
         % Wasn't found
         false ->
             % Create a new channel and join it
             Channel = channel:create(ChannelName, {From, Name}),
 
             % Add the channel to our state
-            add_channel(State, {ChannelName, Channel});
+            NewState = add_channel(State, {ChannelName, Channel}),
+            {reply, ok, NewState};
 
         % Channel was found
         {_, Channel} ->
-            % Join it, if we're already joined this is effectively a no-op
-            % The server state isn't altered
-            genserver:request(Channel, {join, From, Name}),
-            State
-    end,
+            % Join it
+            case genserver:request(Channel, {join, From, Name}) of
+                user_already_joined ->
+                    {reply, {error, user_already_joined, "User already joined"}, State};
 
-    io:format("[Debug/Server]: New state: ~p~n", [NewState]),
+                _ ->
+                    {reply, ok, State}
+            end
+    end;
 
-    % Return a reply with the updated state
-    % TODO: This "some reply" is kinda weird, idk what to return
-    {reply, "some reply", NewState};
+% Handles a client's request to leave a channel
+handle(State, {leave, ChannelName, Name, From}) ->
+    io:format("[Debug/Server]: Leave channel requested~n"),
+
+    % Looks for a channel in our state, can't leave a non-existing channel
+    case lists:keyfind(ChannelName, 1, State#server_state.channels) of
+        % No channel was found
+        false ->
+            {reply, {error, user_not_joined, "User not joined"}, State};
+
+        % Channel found
+        {_, Channel} ->
+            % Leave it
+            case genserver:request(Channel, {leave, From, Name}) of
+                user_not_joined ->
+                    {reply, {error, user_not_joined, "User not joined"}, State};
+
+                _ ->
+                    {reply, ok, State}
+            end
+    end;
+
+handle(State, {message_send, Channel, Msg}) ->
+    io:format("Channel: ~p, Msg: ~p~n", [Channel, Msg]),
+    {reply, ok, State};
 
 handle(_, _) ->
     {'EXIT', "Fatal error: unknown command"}.

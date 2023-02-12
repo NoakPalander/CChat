@@ -15,20 +15,29 @@ handle(State, {join, From, Name}) ->
     io:format("[Debug/Channel]: User joined ~p~n", [Name]),
 
     Members = State#channel_state.members,
-    NewState = case lists:keyfind(From, 1, Members) of
+    Reply = case lists:keyfind(From, 1, Members) of
         % Already joined, do not need to update state
-        {From, Name} -> State;
+        {From, Name} -> {reply, user_already_joined, State};
 
         % Add user to the members list
-        false -> #channel_state{members = [{From, Name} | Members]}
+        false -> {reply, ok, #channel_state{members = [{From, Name} | Members]}}
     end,
 
-    io:format("[Debug/Channel]: New state ~p~n", [NewState]),
-    {reply, "some reply", NewState};
+    %io:format("[Debug/Channel]: New state ~p~n", [NewState]),
+    Reply;
 
 % Handles user leaving
-handle(_State, {leave, _From, _Name}) ->
-    undefined;
+handle(State, {leave, From, Name}) ->
+    io:format("[Debug/Channel]: User left ~p~n", [Name]),
+
+    Members = State#channel_state.members,
+    case lists:keyfind(From, 1, Members) of
+        % Member wasn't found, no-op
+        false -> {reply, user_not_joined, State};
+
+        % Member found, we can now drop it from the members list
+        Member -> {reply, ok, #channel_state{members = lists:delete(Member, Members)}}
+    end;
 
 handle(_State, _) ->
     undefined.
