@@ -79,7 +79,7 @@ handle(State, {leave, From, Name}) ->
         Member -> {reply, ok, drop_member(State, Member)}
     end;
 
-handle(State, {send, Msg, Name, From}) ->
+handle(#channel_state{name = Channel} = State, {send, Msg, Name, From}) ->
     Members = State#channel_state.members,
 
     % Verifies so the user is a member of the channel
@@ -96,11 +96,11 @@ handle(State, {send, Msg, Name, From}) ->
                 io:format("Member: ~p~n", [Member]),
                 % Send message to each recipient (client)
 
-                genserver:request(Member, {message_receive, State#channel_state.name, Msg})
+                genserver:request(Member, {message_receive, Channel, Name, Msg})
             end, Recipients)
     end,
 
-    0;
+    {reply, ok, State};
 
 handle(_State, _) ->
     undefined.

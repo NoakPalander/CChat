@@ -4,27 +4,22 @@
 % This record defines the structure of the state of a client.
 % Add whatever other fields you need.
 -record(client_st, {
-    gui, % atom of the GUI process
-    nick, % nick/username of the client
-    server % atom of the chat server
+    gui :: atom(),
+    nick :: string(),
+    server :: atom()
 }).
+
+-type state() :: #client_st{}.
 
 % Return an initial state record. This is called from GUI.
 % Do not change the signature of this function.
+-spec initial_state(string(), atom(), atom()) -> state().
 initial_state(Nick, GUIAtom, ServerAtom) ->
     #client_st{
         gui = GUIAtom,
         nick = Nick,
         server = ServerAtom
     }.
-
-% handle/2 handles each kind of request from GUI
-% Parameters:
-%   - the current state of the client (St)
-%   - request data from GUI
-% Must return a tuple {reply, Data, NewState}, where:
-%   - Data is what is sent to GUI, either the atom `ok` or a tuple {error, Atom, "Error message"}
-%   - NewState is the updated state of the client
 
 % Join channel
 handle(St, {join, Channel}) ->
@@ -56,15 +51,8 @@ handle(St, {leave, Channel}) ->
 handle(St, {message_send, Channel, Msg}) ->
     io:format("[Debug/Client]: Message send requested (~p), to channel: ~p~n", [Msg, Channel]),
 
-    R = genserver:request(St#client_st.server, {message_send, Channel, Msg, St#client_st.nick, self()}),
-
-    io:format("[Debug/Client]: R = ~p~n", [R]),
+    genserver:request(St#client_st.server, {message_send, Channel, Msg, St#client_st.nick, self()}),
     {reply, ok, St};
-    %{reply, {error, not_implemented, "message sending not implemented"}, St};
-
-handle(St, {message_receive, Channel, Msg}) ->
-    % TODO: send this to the GUI
-    io:format("Received ~p in ~p~n", [Msg, Channel]);
 
 % This case is only relevant for the distinction assignment!
 % Change nick (no check, local only)
@@ -81,7 +69,7 @@ handle(St, whoami) ->
 
 % Incoming message (from channel, to GUI)
 handle(St = #client_st{gui = GUI}, {message_receive, Channel, Nick, Msg}) ->
-    gen_server:call(GUI, {message_receive, Channel, Nick++"> "++Msg}),
+    gen_server:call(GUI, {message_receive, Channel, Nick ++ "> " ++ Msg}),
     {reply, ok, St};
 
 % Quit client via GUI
