@@ -91,12 +91,11 @@ handle(#channel_state{name = Channel} = State, {send, Msg, Name, From}) ->
         Author ->
             Recipients = lists:delete(Author, Members),
 
-            % TODO: Could make this asynchronous
+            % Send message to all members asynchronously
             lists:foreach(fun ({Member, _}) ->
-                io:format("Member: ~p~n", [Member]),
-                % Send message to each recipient (client)
-
-                genserver:request(Member, {message_receive, Channel, Name, Msg})
+                spawn(fun () ->
+                    genserver:request(Member, {message_receive, Channel, Name, Msg})
+                end)
             end, Recipients)
     end,
 
