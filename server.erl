@@ -59,20 +59,17 @@ handle(State, {leave, ChannelName, Name, From}) ->
             end
     end;
 
-handle(State, {message_send, ChannelName, Msg, Name, From}) ->
-    io:format("[Debug/Server]: Message send requested~n"),
+% Handles channel closing
+handle(State, {close_all, _From})   ->
+    io:format("[Debug/Server]: Closing all channels~n"),
 
-    % Looks for a channel in our state
-    case lists:keyfind(ChannelName, 1, State#server_state.channels) of
-        % Couldn't find the channel
-        false ->
-            {reply, {error, user_not_joined, "Channel not found"}, State};
+    lists:foreach(fun ({_, Channel}) ->
+        io:format("[Debug/Server]: Closing channel: ~p~n", [Channel]),
 
-        {_, Channel} ->
-            % Forward the message to the channel
-            genserver:request(Channel, {send, Msg, Name, From}),
-            {reply, ok, State}
-    end;
+        genserver:request(Channel, {close, Channel, self()})
+    end, State#server_state.channels),
+
+    {reply, ok, State};
 
 handle(_, _) ->
     {'EXIT', "Fatal error: unknown command"}.
@@ -89,7 +86,8 @@ start(ServerAtom) ->
 % Stop the server process registered to the given name,
 % together with any other associated processes
 stop(ServerAtom) ->
-    % TODO Implement function
-    % Return ok
     io:format("[Debug/Server]: Stopping server!~n"),
+
+    % Stops all channels
+    genserver:request(ServerAtom, {close_all, self()}),
     genserver:stop(ServerAtom).

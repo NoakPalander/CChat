@@ -79,9 +79,7 @@ handle(State, {leave, From, Name}) ->
         Member -> {reply, ok, drop_member(State, Member)}
     end;
 
-handle(#channel_state{name = Channel} = State, {send, Msg, Name, From}) ->
-    Members = State#channel_state.members,
-
+handle(#channel_state{name = Channel, members = Members} = State, {message_send, Msg, Name, From}) ->
     % Verifies so the user is a member of the channel
     case lists:keyfind(From, 1, Members) of
         % Member not found
@@ -96,10 +94,16 @@ handle(#channel_state{name = Channel} = State, {send, Msg, Name, From}) ->
                 spawn(fun () ->
                     genserver:request(Member, {message_receive, Channel, Name, Msg})
                 end)
-            end, Recipients)
-    end,
+            end, Recipients),
 
+            {reply, ok, State}
+    end;
+
+    %{reply, ok, State};
+
+handle(State, {close, Channel, _From}) ->
+    channel:delete(Channel),
     {reply, ok, State};
 
-handle(_State, _) ->
-    undefined.
+handle(State, _) ->
+    {reply, {error, invalid_command, "Unknown handle"}, State}.

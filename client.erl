@@ -22,16 +22,22 @@ initial_state(Nick, GUIAtom, ServerAtom) ->
     }.
 
 % Join channel
-handle(St, {join, Channel}) ->
+handle(#client_st{nick = Nick, server = Server} = St, {join, Channel}) ->
     io:format("[Debug/Client]: Join requested (~p)~n", [Channel]),
 
-    % Inform server of channel creation / joining
-    case genserver:request(St#client_st.server, {join, Channel, St#client_st.nick, self()}) of
-        % Everything went ok
-        ok -> {reply, ok, St};
+    % Inform server of channel creation or user joining
+    case (catch genserver:request(Server, {join, Channel, Nick, self()})) of
+        % Server process is down
+        {'EXIT', _} ->
+            {reply, {error, server_not_reached, "Server not responding"}, St};
 
-        % User was already joined
-        Reply -> {reply, Reply, St}
+        % User was already in the channel
+        {error, user_already_joined, Msg} ->
+            {reply, {error, user_already_joined, Msg}, St};
+
+        % Everything went ok
+        ok ->
+            {reply, ok, St}
     end;
 
 % Leave channel
@@ -50,9 +56,21 @@ handle(St, {leave, Channel}) ->
 % Sending message (from GUI, to channel)
 handle(St, {message_send, Channel, Msg}) ->
     io:format("[Debug/Client]: Message send requested (~p), to channel: ~p~n", [Msg, Channel]),
+    io:format("Channel: ~p~n", [Channel]),
 
-    genserver:request(St#client_st.server, {message_send, Channel, Msg, St#client_st.nick, self()}),
-    {reply, ok, St};
+    case catch(genserver:request(list_to_atom(Channel), {message_send, Msg, St#client_st.nick, self()})) of
+        % Channel process was down
+        {'EXIT', _} ->
+            {reply, {error, server_not_reached, "Channel not responding"}, St};
+
+        % User wasn't in the channel
+        {error, _, _} ->
+            {reply, {error, user_not_joined, "User hasn't joined the channel yet"}, St};
+
+        % Everything went ok
+        ok ->
+            {reply, ok, St}
+    end;
 
 % This case is only relevant for the distinction assignment!
 % Change nick (no check, local only)
