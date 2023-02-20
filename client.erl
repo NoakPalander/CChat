@@ -24,12 +24,15 @@ initial_state(Nick, GUIAtom, ServerAtom) ->
 % Join channel
 handle(#client_st{nick = Nick, server = Server} = St, {join, Channel}) ->
     io:format("[Debug/Client]: Join requested (~p)~n", [Channel]),
+    NotReached = {reply, {error, server_not_reached, "Server not responding"}, St},
 
     % Inform server of channel creation or user joining
     case (catch genserver:request(Server, {join, Channel, Nick, self()})) of
         % Server process is down
-        {'EXIT', _} ->
-            {reply, {error, server_not_reached, "Server not responding"}, St};
+        {'EXIT', _} -> NotReached;
+
+        % Server not responding
+        timeout_error -> NotReached;
 
         % User was already in the channel
         {error, user_already_joined, Msg} ->
@@ -41,22 +44,27 @@ handle(#client_st{nick = Nick, server = Server} = St, {join, Channel}) ->
     end;
 
 % Leave channel
-handle(St, {leave, Channel}) ->
+handle(#client_st{nick = Nick, server = Server} = St, {leave, Channel}) ->
     io:format("[Debug/Client]: Leave requested (~p)~n", [Channel]),
 
     % Inform server of leaving
-    case genserver:request(St#client_st.server, {leave, Channel, St#client_st.nick, self()}) of
-        % Everything went ok
-        ok -> {reply, ok, St};
+    case catch(genserver:request(Server, {leave, Channel, Nick, self()})) of
+        % Server timeout
+        timeout_error ->
+            {reply, {error, server_not_reached, "Server not responding"}, St};
 
-        % User wasn't joined
-        Reply -> {reply, Reply, St}
+        % Can't leave a channel we're not apart of
+        {error, user_not_joined, _} ->
+            {reply, {error, user_not_joined, "User wasn't in the channel"}, St};
+
+        % Everything went ok
+        _ ->
+            {reply, ok, St}
     end;
 
 % Sending message (from GUI, to channel)
 handle(St, {message_send, Channel, Msg}) ->
     io:format("[Debug/Client]: Message send requested (~p), to channel: ~p~n", [Msg, Channel]),
-    io:format("Channel: ~p~n", [Channel]),
 
     case catch(genserver:request(list_to_atom(Channel), {message_send, Msg, St#client_st.nick, self()})) of
         % Channel process was down
@@ -74,8 +82,16 @@ handle(St, {message_send, Channel, Msg}) ->
 
 % This case is only relevant for the distinction assignment!
 % Change nick (no check, local only)
-handle(St, {nick, NewNick}) ->
-    {reply, ok, St#client_st{nick = NewNick}};
+handle(#client_st{gui = _, server = Server, nick = Nick} = St, {nick, NewNick}) ->
+    io:format("[Debug/Client]: Changing nick from ~p to ~p~n", [Nick, NewNick]),
+
+    case genserver:request(Server, {new_nick, Nick, NewNick}) of
+        ok ->
+            {reply, ok, St#client_st{nick = NewNick}};
+
+        {error, nick_taken, Reason} ->
+            {reply, {error, nick_taken, Reason}, St}
+    end;
 
 % ---------------------------------------------------------------------------
 % The cases below do not need to be changed...
@@ -98,4 +114,4 @@ handle(St, quit) ->
 % Catch-all for any unhandled requests
 handle(St, Data) ->
     io:format("[Debug]: Unhandled request (~p)~n", [Data]),
-    {reply, {error, not_implemented, "Client does not handle this command"}, St}.
+    {reply, {error, not_implemented, "Unknown command"}, St}.

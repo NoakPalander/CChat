@@ -3,16 +3,42 @@
 
 % The server state contains a list of all channels
 % These channels are created in the channel module as processes
--record(server_state, {channels = []}).
+-record(server_state, {channels = [], nicks = []}).
 
-add_channel(#server_state{channels = Channels}, Channel) ->
-    State = #server_state{channels = [Channel | Channels]},
+add_channel(#server_state{channels = Channels, nicks = Nicks}, Channel) ->
+    State = #server_state{channels = [Channel | Channels], nicks = Nicks},
     io:format("[Debug/Server]: Adding channel, new state ~p~n", [State]),
     State.
 
+% Handles new nicknames
+handle(#server_state{channels = Channels, nicks = Nicks} = State, {new_nick, Nick, New}) ->
+    io:format("[Debug/Server]: Nick swap requested from ~p to ~p~n", [Nick, New]),
+    %io:format("[Debug/Server]: Current nicks ~p~n", [Nicks])
+
+    case lists:member(New, Nicks) of
+        % Nick wasn't taken
+        false ->
+            % Removes the current nickname from the list and adds the new one
+            NewNicks = [New | lists:delete(Nick, Nicks)],
+            {reply, ok, #server_state{channels = Channels, nicks = NewNicks}};
+
+        % Nick already was taken
+        true ->
+            {reply, {error, nick_taken, "Nick was already taken"}, State}
+    end;
+
 % Handles a client's request to join a channel
-handle(State, {join, ChannelName, Name, From}) ->
+handle(#server_state{channels = Channels, nicks = Nicks} = State, {join, ChannelName, Name, From}) ->
     io:format("[Debug/Server]: Join channel requested~n"),
+
+    % Adds the nick to the list if it's not already present
+    NewNicks = case lists:member(Name, State#server_state.nicks) of
+        % Already exists
+        true -> Nicks;
+
+        % Nick hasn't been registered
+        false -> [Name | Nicks]
+    end,
 
     % Looks for a channel in our state, matching the join-commands name
     case lists:keyfind(ChannelName, 1, State#server_state.channels) of
@@ -22,18 +48,18 @@ handle(State, {join, ChannelName, Name, From}) ->
             Channel = channel:create(ChannelName, {From, Name}),
 
             % Add the channel to our state
-            NewState = add_channel(State, {ChannelName, Channel}),
-            {reply, ok, NewState};
+            {reply, ok, #server_state{channels = [{ChannelName, Channel} | Channels], nicks = NewNicks}};
 
         % Channel was found
         {_, Channel} ->
             % Join it
             case genserver:request(Channel, {join, From, Name}) of
                 user_already_joined ->
-                    {reply, {error, user_already_joined, "User already joined"}, State};
+                    {reply, {error, user_already_joined, "User already joined"},
+                        #server_state{channels = Channels, nicks = NewNicks}};
 
                 _ ->
-                    {reply, ok, State}
+                    {reply, ok, #server_state{channels = Channels, nicks = NewNicks}}
             end
     end;
 
