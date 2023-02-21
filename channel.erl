@@ -10,9 +10,8 @@
     members :: list(member())
 }).
 
-% Type declaration for the state record, just syntax sugar
+% Type declaration for the state record, just as syntax sugar
 -type state() :: #channel_state{}.
-
 
 % Returns an initial state, containing one member
 -spec init_state(string(), member()) -> state().
@@ -50,21 +49,26 @@ drop_member(#channel_state{name = Name, members = Members}, Member) ->
      #channel_state{name = Name, members = lists:delete(Member, Members)}.
 
 
+-spec handle(state(), {join, pid(), string()}) -> state();
+            (state(), {leave, pid(), string()}) -> state();
+            (state(), {message_send, string(), string(), pid()}) -> state();
+            (state(), {close, pid()}) -> state();
+            (state(), any()) -> state().
+
 % Handles user joining
 handle(State, {join, From, Name}) ->
     io:format("[Debug/Channel]: User joined ~p~n", [Name]),
 
     Members = State#channel_state.members,
-    Reply = case lists:keyfind(From, 1, Members) of
+    case lists:keyfind(From, 1, Members) of
         % Already joined, do not need to update state
-        {From, Name} -> {reply, user_already_joined, State};
+        {From, Name} ->
+            {reply, user_already_joined, State};
 
-        % Add user to the members list
-        false -> {reply, ok, add_member(State, {From, Name})}
-    end,
-
-    %io:format("[Debug/Channel]: New state ~p~n", [NewState]),
-    Reply;
+        % User wasn't joined, add the user to the members list
+        false ->
+            {reply, ok, add_member(State, {From, Name})}
+    end;
 
 % Handles user leaving
 handle(State, {leave, From, Name}) ->
@@ -79,6 +83,7 @@ handle(State, {leave, From, Name}) ->
         Member -> {reply, ok, drop_member(State, Member)}
     end;
 
+% Handles message sending, more specifically it asynchronously passes along messages to all recipients
 handle(#channel_state{name = Channel, members = Members} = State, {message_send, Msg, Name, From}) ->
     % Verifies so the user is a member of the channel
     case lists:keyfind(From, 1, Members) of
@@ -86,10 +91,12 @@ handle(#channel_state{name = Channel, members = Members} = State, {message_send,
         false ->
             {reply, {error, user_not_joined, "User isn't in the channel"}, State};
 
+        % Message author
         Author ->
+            % Retrieves the recipients
             Recipients = lists:delete(Author, Members),
 
-            % Send message to all members asynchronously
+            % Send message to all recipients, asynchronously
             lists:foreach(fun ({Member, _}) ->
                 spawn(fun () ->
                     genserver:request(Member, {message_receive, Channel, Name, Msg})
@@ -99,11 +106,11 @@ handle(#channel_state{name = Channel, members = Members} = State, {message_send,
             {reply, ok, State}
     end;
 
-    %{reply, ok, State};
-
-handle(State, {close, Channel, _From}) ->
+% Closes the channel
+handle(State, {close, Channel}) ->
     channel:delete(Channel),
     {reply, ok, State};
 
-handle(State, _) ->
-    {reply, {error, invalid_command, "Unknown handle"}, State}.
+% Wildcard match
+handle(_State, _) ->
+    {'EXIT', "Fatal error: unknown command"}.
