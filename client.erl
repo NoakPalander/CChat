@@ -21,9 +21,18 @@ initial_state(Nick, GUIAtom, ServerAtom) ->
         server = ServerAtom
     }.
 
+-spec handle(state(), {join, string()}) -> state();
+            (state(), {leave, string()}) -> state();
+            (state(), {message_send, string(), string()}) -> state();
+            (state(), {nick, string()}) -> state();
+            (state(), whoami) -> state();
+            (state(), {message_receive, string(), string(), string()}) -> state();
+            (state(), quit) -> state();
+            (state(), any()) -> state().
+
+
 % Join channel
 handle(#client_st{nick = Nick, server = Server} = State, {join, Channel}) ->
-    io:format("[Debug/Client]: Join requested (~p)~n", [Channel]),
     NotReached = {reply, {error, server_not_reached, "Server not responding"}, State},
 
     % Inform server of channel creation or user joining
@@ -44,11 +53,9 @@ handle(#client_st{nick = Nick, server = Server} = State, {join, Channel}) ->
     end;
 
 % Leave channel
-handle(#client_st{nick = Nick, server = Server} = State, {leave, Channel}) ->
-    io:format("[Debug/Client]: Leave requested (~p)~n", [Channel]),
-
+handle(#client_st{nick = _, server = Server} = State, {leave, Channel}) ->
     % Inform server of leaving
-    case catch(genserver:request(Server, {leave, Channel, Nick, self()})) of
+    case catch(genserver:request(Server, {leave, Channel, self()})) of
         % Server timeout
         timeout_error ->
             {reply, {error, server_not_reached, "Server not responding"}, State};
@@ -64,12 +71,14 @@ handle(#client_st{nick = Nick, server = Server} = State, {leave, Channel}) ->
 
 % Sending message (from GUI, to channel)
 handle(State, {message_send, Channel, Msg}) ->
-    io:format("[Debug/Client]: Message send requested (~p), to channel: ~p~n", [Msg, Channel]),
+    NotReached = {reply, {error, server_not_reached, "Channel not responding"}, State},
 
     case catch(genserver:request(list_to_atom(Channel), {message_send, Msg, State#client_st.nick, self()})) of
         % Channel process was down
-        {'EXIT', _} ->
-            {reply, {error, server_not_reached, "Channel not responding"}, State};
+        {'EXIT', _} -> NotReached;
+
+        % Channel timeout
+        timeout_error -> NotReached;
 
         % User wasn't in the channel
         {error, _, _} ->
@@ -82,12 +91,17 @@ handle(State, {message_send, Channel, Msg}) ->
 
 % This case is only relevant for the distinction assignment!
 % Change nick (no check, local only)
-handle(#client_st{gui = _, server = Server, nick = Nick} = State, {nick, NewNick}) ->
-    io:format("[Debug/Client]: Changing nick from ~p to ~p~n", [Nick, NewNick]),
+handle(#client_st{gui = GUI, server = Server, nick = Nick} = State, {nick, NewNick}) ->
+    NotReached = {reply, {error, server_not_reached, "Server not responding"}, State},
+    case catch(genserver:request(Server, {new_nick, Nick, NewNick})) of
+        % Server process was down
+        {'EXIT', _} -> NotReached;
 
-    case genserver:request(Server, {new_nick, Nick, NewNick}) of
+        % Server timeout
+        timeout -> NotReached;
+
         ok ->
-            {reply, ok, State#client_st{nick = NewNick}};
+            {reply, ok, State#client_st{gui = GUI, server = Server, nick = NewNick}};
 
         {error, nick_taken, Reason} ->
             {reply, {error, nick_taken, Reason}, State}

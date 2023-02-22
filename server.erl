@@ -16,17 +16,14 @@ start(ServerAtom) ->
     % - Spawn a new process which waits for a message, handles it, then loops infinitely
     % - Register this process to ServerAtom
     % - Return the process ID
-    io:format("[Debug/Server]: Starting server!~n"),
     genserver:start(ServerAtom, #server_state{}, fun handle/2).
 
 % Stop the server process registered to the given name,
 % together with any other associated processes
 -spec stop(atom()) -> ok.
 stop(ServerAtom) ->
-    io:format("[Debug/Server]: Stopping server!~n"),
-
     % Stops all channels
-    genserver:request(ServerAtom, close_all),
+    catch(genserver:request(ServerAtom, close_all)),
 
     % Stop the server
     genserver:stop(ServerAtom).
@@ -41,8 +38,6 @@ stop(ServerAtom) ->
 
 % Handles new nicknames
 handle(#server_state{channels = Channels, nicks = Nicks} = State, {new_nick, Nick, New}) ->
-    io:format("[Debug/Server]: Nick swap requested from ~p to ~p~n", [Nick, New]),
-
     % Checks if the new nickname is already taken
     case lists:member(New, Nicks) of
         % Nick wasn't taken
@@ -58,8 +53,6 @@ handle(#server_state{channels = Channels, nicks = Nicks} = State, {new_nick, Nic
 
 % Handles a client's request to join a channel
 handle(#server_state{channels = Channels, nicks = Nicks} = State, {join, ChannelName, Name, From}) ->
-    io:format("[Debug/Server]: Join channel requested~n"),
-
     % Adds the nick to the list if it's not already present
     NewNicks = case lists:member(Name, State#server_state.nicks) of
         % Already exists
@@ -81,8 +74,16 @@ handle(#server_state{channels = Channels, nicks = Nicks} = State, {join, Channel
 
         % Channel was found
         {_, Channel} ->
+            NotReached = {reply, {error, server_not_reached, "Channel not responding"}, State},
+
             % Try to join it
-            case genserver:request(Channel, {join, From, Name}) of
+            case catch(genserver:request(Channel, {join, From, Name})) of
+                % Channel process was down
+                {'EXIT', _} -> NotReached;
+
+                % Channel timeout
+                timeout_error -> NotReached;
+
                 % User was already in the channel
                 user_already_joined ->
                     {reply, {error, user_already_joined, "User already joined"},
@@ -95,9 +96,7 @@ handle(#server_state{channels = Channels, nicks = Nicks} = State, {join, Channel
     end;
 
 % Handles a client's request to leave a channel
-handle(State, {leave, ChannelName, Name, From}) ->
-    io:format("[Debug/Server]: Leave channel requested~n"),
-
+handle(State, {leave, ChannelName, From}) ->
     % Looks for a channel in our state, can't leave a non-existing channel
     case lists:keyfind(ChannelName, 1, State#server_state.channels) of
         % No channel was found
@@ -106,8 +105,16 @@ handle(State, {leave, ChannelName, Name, From}) ->
 
         % Channel found
         {_, Channel} ->
+            NotReached = {reply, {error, server_not_reached, "Channel not responding"}, State},
+
             % Try to leave it
-            case genserver:request(Channel, {leave, From, Name}) of
+            case catch(genserver:request(Channel, {leave, From})) of
+                % Channel process down
+                {'EXIT', _} ->  NotReached;
+
+                % Channel timeout
+                timeout_error -> NotReached;
+
                 % User wasn't in the channel
                 user_not_joined ->
                     {reply, {error, user_not_joined, "User not joined"}, State};
@@ -120,14 +127,10 @@ handle(State, {leave, ChannelName, Name, From}) ->
 
 % Handles channel closing
 handle(State, close_all) ->
-    io:format("[Debug/Server]: Closing all channels~n"),
-
     % Asynchronously close all channels
     lists:foreach(fun ({_Name, Channel}) ->
-        io:format("[Debug/Server]: Closing channel: ~p~n", [Channel]),
-
         % Close the given channel
-        genserver:request(Channel, {close, Channel})
+        catch(genserver:request(Channel, {close, Channel}))
     end, State#server_state.channels),
 
     {reply, ok, State};
