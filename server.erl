@@ -14,9 +14,11 @@ add_channel(#server_state{channels = Channels}, Channel) ->
 handle(State, {join, ChannelName, Name, From}) ->
     io:format("[Debug/Server]: Join channel requested~n"),
 
+
     % Looks for a channel in our state, matching the join-commands name
     case lists:keyfind(ChannelName, 1, State#server_state.channels) of
         % Wasn't found
+        
         false ->
             % Create a new channel and join it
             Channel = channel:create(ChannelName, {From, Name}),
@@ -28,9 +30,14 @@ handle(State, {join, ChannelName, Name, From}) ->
         % Channel was found
         {_, Channel} ->
             % Join it
-            case genserver:request(Channel, {join, From, Name}) of
+            case catch(genserver:request(Channel, {join, From, Name})) of
+                {'EXIT', _} ->
+                    {reply, {error, server_not_reached, "Server not responding"}, State};
                 user_already_joined ->
                     {reply, {error, user_already_joined, "User already joined"}, State};
+
+                timeout_error ->
+                    {reply, {error, server_not_reached, "Server not responding"}, State};
 
                 _ ->
                     {reply, ok, State}
@@ -51,6 +58,9 @@ handle(State, {leave, ChannelName, Name, From}) ->
         {_, Channel} ->
             % Leave it
             case genserver:request(Channel, {leave, From, Name}) of
+                timeout_error ->
+                    {reply, {error, server_not_reached, "Server not responding"}, State};
+
                 user_not_joined ->
                     {reply, {error, user_not_joined, "User not joined"}, State};
 
@@ -58,6 +68,8 @@ handle(State, {leave, ChannelName, Name, From}) ->
                     {reply, ok, State}
             end
     end;
+
+
 
 % Handles channel closing
 handle(State, {close_all, _From})   ->

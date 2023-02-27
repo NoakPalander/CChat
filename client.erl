@@ -30,10 +30,14 @@ handle(#client_st{nick = Nick, server = Server} = St, {join, Channel}) ->
         % Server process is down
         {'EXIT', _} ->
             {reply, {error, server_not_reached, "Server not responding"}, St};
-
+        
+        timeout_error ->
+            {reply, {error, server_not_reached, "Server not responding"}, St};
+        
         % User was already in the channel
         {error, user_already_joined, Msg} ->
             {reply, {error, user_already_joined, Msg}, St};
+
 
         % Everything went ok
         ok ->
@@ -46,6 +50,7 @@ handle(St, {leave, Channel}) ->
 
     % Inform server of leaving
     case genserver:request(St#client_st.server, {leave, Channel, St#client_st.nick, self()}) of
+
         % Everything went ok
         ok -> {reply, ok, St};
 
