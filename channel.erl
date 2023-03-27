@@ -18,7 +18,6 @@
 init_state(ChannelName, User) ->
     #channel_state{name = ChannelName, members = [User]}.
 
-
 % Creates a channel process and adds the callee to the members list
 % Returns the Pid of the channel
 -spec create(string(), member()) -> pid().

@@ -1,0 +1,2 @@
+* CChat
+Chat client lab for the course "Concurrent Programming", using Erlang and OTP for message passing between clients, servers, and channels.
